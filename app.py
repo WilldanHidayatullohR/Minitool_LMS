@@ -3,6 +3,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from math import pi
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+
+
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
@@ -121,6 +127,7 @@ st.success(f"Target yang dipilih: {target_col}. Jumlah fitur yang digunakan dala
 # ==== 4. STATISTIK & VISUALISASI ====
 st.markdown("### 4. Statistik & Visualisasi")
 
+# Tabs Visualisasi (5 Tab)
 tab_bar, tab_box, tab_corr, tab_scatter, tab_radar = st.tabs(
     ["Rata-rata Fitur", "Sebaran (Boxplot)", "Korelasi", "Scatter Plot", "Radar Aspek"]
 )
@@ -155,8 +162,8 @@ with tab_bar:
         st.write(f"- **{idx}** (rata-rata: {val:.2f})")
 
     st.caption(
-        "Nilai rata-rata tinggi menunjukkan area yang sudah berjalan baik dan dapat dipertahankan. "
-        "Sebaliknya, rata-rata rendah dapat menjadi kandidat prioritas perbaikan."
+        "Nilai rata-rata tinggi menunjukkan area yang sudah berjalan baik. "
+        "Sebaliknya, rata-rata rendah dapat menjadi fokus perbaikan."
     )
 
 # -------------------------------------------------
@@ -166,7 +173,7 @@ with tab_box:
     st.subheader("Sebaran Skor per Fitur (Boxplot)")
 
     fig_box, ax_box = plt.subplots(figsize=(10, 4))
-    df[feature_cols].plot(kind="box", ax=ax_box)
+    df[feature_cols].plot(kind='box', ax=ax_box)
     ax_box.set_ylabel("Skor")
     ax_box.set_title("Sebaran Skor Fitur")
     plt.xticks(rotation=45, ha="right")
@@ -174,8 +181,8 @@ with tab_box:
     st.pyplot(fig_box)
 
     st.caption(
-        "Boxplot menunjukkan median, sebaran, dan potensi outlier pada setiap fitur. "
-        "Fitur dengan sebaran sangat lebar menandakan persepsi pengguna yang beragam."
+        "Boxplot menunjukkan median, sebaran, dan potensi outlier. "
+        "Sebaran luas = persepsi pengguna lebih beragam."
     )
 
 # -------------------------------------------------
@@ -184,14 +191,13 @@ with tab_box:
 with tab_corr:
     st.subheader("Korelasi Antar Fitur dan Target")
 
-    # Ambil hanya fitur numerik + target
     corr_cols = feature_cols + [target_col]
     corr = df[corr_cols].corr()
 
     st.write("Matriks Korelasi:")
     st.dataframe(corr.style.background_gradient(cmap="coolwarm"))
 
-    fig_corr, ax_corr = plt.subplots(figsize=(6, 5))
+    fig_corr, ax_corr = plt.subplots(figsize=(7, 5))
     cax = ax_corr.imshow(corr, interpolation="nearest", cmap="coolwarm")
     ax_corr.set_xticks(range(len(corr_cols)))
     ax_corr.set_yticks(range(len(corr_cols)))
@@ -203,8 +209,8 @@ with tab_corr:
     st.pyplot(fig_corr)
 
     st.caption(
-        "Nilai korelasi mendekati 1 atau -1 menunjukkan hubungan yang kuat. "
-        "Perhatikan fitur dengan korelasi tinggi terhadap target kepuasan."
+        "Korelasi tinggi (+ / -) menandakan hubungan kuat antara fitur dan target. "
+        "Fitur dengan korelasi tinggi berpotensi memengaruhi kepuasan."
     )
 
 # -------------------------------------------------
@@ -214,7 +220,7 @@ with tab_scatter:
     st.subheader("Scatter Plot Fitur vs Target")
 
     selected_feature = st.selectbox(
-        "Pilih satu fitur untuk dibandingkan dengan target:",
+        "Pilih fitur untuk dibandingkan dengan target:",
         options=feature_cols,
         index=0
     )
@@ -228,8 +234,8 @@ with tab_scatter:
     st.pyplot(fig_scatter)
 
     st.caption(
-        "Scatter plot membantu melihat pola: apakah kenaikan nilai pada fitur "
-        "tersebut cenderung diikuti oleh kenaikan nilai target kepuasan."
+        "Scatter plot membantu melihat tren: "
+        "apakah nilai fitur naik → kepuasan ikut naik?"
     )
 
 # -------------------------------------------------
@@ -238,7 +244,6 @@ with tab_scatter:
 with tab_radar:
     st.subheader("Profil Aspek Kepuasan (Radar Chart)")
 
-    # Mapping grup aspek → prefix kolom
     aspect_groups = {
         "System Quality": ["SQ1", "SQ2", "SQ3", "SQ4"],
         "Information Quality": ["IQ1", "IQ2", "IQ3", "IQ4"],
@@ -247,39 +252,248 @@ with tab_radar:
         "Expected Satisfaction": ["ES1", "ES2", "ES3", "ES4"],
     }
 
-    aspect_labels = []
-    aspect_means = []
+    labels = []
+    means = []
 
-    for aspect_name, cols in aspect_groups.items():
-        # Hanya ambil kolom yang benar-benar ada di data
+    for asp, cols in aspect_groups.items():
         valid_cols = [c for c in cols if c in df.columns]
         if len(valid_cols) == 0:
             continue
-        aspect_labels.append(aspect_name)
-        aspect_means.append(df[valid_cols].mean().mean())
+        labels.append(asp)
+        means.append(df[valid_cols].mean().mean())
 
-    if len(aspect_labels) < 3:
-        st.info(
-            "Radar chart membutuhkan minimal beberapa kelompok aspek. "
-            "Pastikan nama kolom mengikuti pola: SQ1–SQ4, IQ1–IQ4, SVQ1–SVQ4, UX1–UX4, ES1–ES4."
-        )
+    if len(labels) < 3:
+        st.info("Radar chart butuh minimal 3 aspek. Pastikan nama kolom sesuai format SQ1–ES4.")
     else:
-        # Siapkan data untuk radar
-        angles = np.linspace(0, 2 * np.pi, len(aspect_labels), endpoint=False)
-        values = np.array(aspect_means)
-        # Tutup kembali ke titik pertama
+        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False)
+        values = np.array(means)
         values = np.concatenate((values, [values[0]]))
         angles = np.concatenate((angles, [angles[0]]))
 
         fig_rad, ax_rad = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
         ax_rad.plot(angles, values, "o-", linewidth=2)
         ax_rad.fill(angles, values, alpha=0.25)
-        ax_rad.set_thetagrids(angles[:-1] * 180 / np.pi, aspect_labels)
+        ax_rad.set_thetagrids(angles[:-1] * 180 / np.pi, labels)
+        ax_rad.set_ylim(1, 5)
         ax_rad.set_title("Profil Rata-rata per Aspek", pad=20)
-        ax_rad.set_ylim(1, 5)  # asumsi skala Likert 1–5
         st.pyplot(fig_rad)
 
         st.caption(
-            "Radar chart memperlihatkan profil kekuatan dan kelemahan tiap aspek. "
-            "Aspek dengan nilai rata-rata lebih tinggi menunjukkan area yang relatif lebih kuat."
+            "Radar chart menunjukkan kekuatan & kelemahan tiap aspek. "
+            "Aspek dengan nilai lebih tinggi → kinerja lebih baik."
         )
+
+# ==========================================================
+# ============= TAB 4: INSIGHT OTOMATIS (UPGRADED) =========
+# ==========================================================
+with tab_insight:
+    st.write("### Ringkasan Insight Otomatis")
+
+    # --- 1. Statistika dasar: rata-rata ---
+    mean_scores = df[feature_cols].mean()
+    top3 = mean_scores.sort_values(ascending=False).head(3)
+    bottom3 = mean_scores.sort_values(ascending=True).head(3)
+
+    st.subheader("1) Gambaran Umum Aspek Kepuasan")
+
+    st.write("**Aspek dengan skor rata-rata tertinggi:**")
+    for feat, val in top3.items():
+        level = klasifikasi_level_mean(val)
+        st.write(f"- **{feat}** → rata-rata {val:.2f} ({level})")
+
+    st.write("**Aspek dengan skor rata-rata terendah:**")
+    for feat, val in bottom3.items():
+        level = klasifikasi_level_mean(val)
+        st.write(f"- **{feat}** → rata-rata {val:.2f} ({level})")
+
+    st.markdown("---")
+
+    # --- 2. Korelasi dengan target: fitur yang paling memengaruhi ---
+    st.subheader("2) Fitur yang Paling Berkorelasi dengan Kepuasan")
+
+    corr_with_target = df[feature_cols + [target_col]].corr()[target_col].drop(target_col)
+    corr_sorted = corr_with_target.sort_values(ascending=False)
+
+    top_corr = corr_sorted.head(5)
+    st.write("**Top 5 fitur dengan korelasi positif tertinggi terhadap target:**")
+    for feat, val in top_corr.items():
+        st.write(f"- **{feat}** → korelasi {val:.2f}")
+
+    st.caption(
+        "Semakin tinggi nilai korelasi positif, semakin besar kecenderungan "
+        "bahwa kenaikan nilai fitur diikuti kenaikan nilai kepuasan."
+    )
+
+    st.markdown("---")
+
+    # --- 3. Analisis gabungan: skor rendah + korelasi tinggi = prioritas ---
+    st.subheader("3) Prioritas Perbaikan (Skor Rendah tetapi Pengaruh Tinggi)")
+
+    # Normalisasi skor rata-rata ke 0–1 dan korelasi ke |r|
+    mean_norm = (mean_scores - mean_scores.min()) / (mean_scores.max() - mean_scores.min() + 1e-9)
+    corr_abs = corr_with_target.abs()
+
+    # Kita definisikan "prioritas" = skor relatif rendah tapi korelasi absolut tinggi
+    priority_score = (1 - mean_norm) * corr_abs
+
+    priority_rank = priority_score.sort_values(ascending=False).head(5)
+
+    if len(priority_rank) == 0:
+        st.info("Belum dapat menghitung prioritas perbaikan (cek data dan kolom target).")
+    else:
+        st.write(
+            "Fitur di bawah ini memiliki kombinasi **skor rata-rata relatif rendah** "
+            "namun **pengaruh besar terhadap kepuasan**, sehingga layak jadi prioritas perbaikan:"
+        )
+        for feat, val in priority_rank.items():
+            st.write(
+                f"- **{feat}** → skor rata-rata {mean_scores[feat]:.2f}, "
+                f"korelasi {corr_with_target[feat]:.2f}"
+            )
+
+    st.markdown("---")
+
+    # --- 4. Analisis model prediksi (quick re-fit) ---
+    st.subheader("4) Evaluasi Singkat Model Prediksi")
+
+    X = df[feature_cols]
+    y = df[target_col]
+
+    # Split ulang cepat (data biasanya kecil)
+    X_train_i, X_test_i, y_train_i, y_test_i = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    # Baseline: Linear Regression
+    lin_reg_i = LinearRegression()
+    lin_reg_i.fit(X_train_i, y_train_i)
+    y_pred_lin_i = lin_reg_i.predict(X_test_i)
+    r2_lin_i = r2_score(y_test_i, y_pred_lin_i)
+
+    # Model non-linear: Random Forest
+    rf_i = RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        n_jobs=-1
+    )
+    rf_i.fit(X_train_i, y_train_i)
+    y_pred_rf_i = rf_i.predict(X_test_i)
+    r2_rf_i = r2_score(y_test_i, y_pred_rf_i)
+
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.write("**Linear Regression (baseline):**")
+        st.write(f"- R²: {r2_lin_i:.3f}")
+    with col_m2:
+        st.write("**Random Forest:**")
+        st.write(f"- R²: {r2_rf_i:.3f}")
+
+    # Komentar otomatis soal kualitas model
+    st.write("**Interpretasi kualitas model:**")
+    if r2_rf_i >= 0.75:
+        st.write(
+            "- Model Random Forest memiliki *kualitas sangat baik* (R² ≥ 0.75). "
+            "Artinya, variasi kepuasan cukup baik dijelaskan oleh fitur-fitur yang digunakan."
+        )
+    elif r2_rf_i >= 0.5:
+        st.write(
+            "- Model Random Forest memiliki *kualitas sedang* (0.50 ≤ R² < 0.75). "
+            "Artinya, masih ada faktor lain di luar data yang mungkin berpengaruh terhadap kepuasan."
+        )
+    else:
+        st.write(
+            "- Model Random Forest memiliki *kualitas rendah* (R² < 0.50). "
+            "Hasil model perlu ditafsirkan dengan hati-hati, dan disarankan menambah variabel lain."
+        )
+
+    st.markdown("---")
+
+    # --- 5. Narasi akhir sebagai summary (bisa dicopas ke laporan) ---
+    st.subheader("5) Ringkasan Naratif (Siap Copas ke Laporan)")
+
+    best_feat = top_corr.index[0] if len(top_corr) > 0 else None
+    worst_feat = bottom3.index[0] if len(bottom3) > 0 else None
+
+    summary_text = ""
+
+    summary_text += f"- Secara umum, tingkat kepuasan yang diukur melalui **{target_col}** dipengaruhi oleh beberapa fitur utama.\n"
+    if best_feat:
+        summary_text += (
+            f"- Fitur dengan pengaruh paling kuat terhadap kepuasan adalah **{best_feat}**, "
+            f"dengan korelasi {corr_with_target[best_feat]:.2f}. "
+        )
+    if worst_feat:
+        summary_text += (
+            f"- Meskipun demikian, **{worst_feat}** tercatat memiliki skor rata-rata terendah "
+            f"({mean_scores[worst_feat]:.2f}), sehingga layak menjadi fokus perbaikan.\n"
+        )
+    summary_text += (
+        "- Berdasarkan analisis gabungan antara skor rata-rata dan korelasi, beberapa fitur "
+        "dapat diidentifikasi sebagai prioritas utama perbaikan karena memiliki skor relatif rendah "
+        "namun pengaruh yang signifikan terhadap kepuasan.\n"
+    )
+    summary_text += (
+        "- Hasil pemodelan menggunakan Random Forest menunjukkan bahwa nilai R² berada pada kisaran "
+        f"{r2_rf_i:.2f}, sehingga model dapat digunakan sebagai dasar analisis awal, "
+        "namun tetap perlu dikombinasikan dengan pertimbangan kebijakan dan konteks lapangan."
+    )
+
+    st.write(summary_text)
+    
+    # -------------------------------------------------
+    # 6) Export Laporan ke PDF
+    # -------------------------------------------------
+    st.subheader("6) Ekspor Laporan ke PDF")
+
+    st.caption(
+        "Tombol di bawah ini akan menghasilkan ringkasan laporan singkat dalam bentuk PDF "
+        "berdasarkan insight otomatis di atas."
+    )
+
+    # Siapkan buffer untuk file PDF
+    pdf_buffer = BytesIO()
+
+    # Buat kanvas PDF
+    c = canvas.Canvas(pdf_buffer, pagesize=A4)
+    width, height = A4
+
+    # Set posisi awal teks
+    textobject = c.beginText()
+    textobject.setTextOrigin(40, height - 50)
+    textobject.setFont("Helvetica", 11)
+
+    # Judul laporan
+    judul = "Laporan Ringkas Analisis Kepuasan"
+    textobject.textLine(judul)
+    textobject.textLine("")  # baris kosong
+
+    # Info target
+    textobject.textLine(f"Target kepuasan     : {target_col}")
+    textobject.textLine(f"Jumlah responden    : {df.shape[0]}")
+    textobject.textLine(f"Jumlah fitur        : {len(feature_cols)}")
+    textobject.textLine(f"R² Random Forest    : {r2_rf_i:.2f}")
+    textobject.textLine("")
+    textobject.textLine("Ringkasan Insight:")
+    textobject.textLine("")
+
+    # Pecah summary_text jadi beberapa baris
+    for line in summary_text.split("\n"):
+        # Pecah lagi kalau terlalu panjang (supaya tidak keluar margin)
+        while len(line) > 110:
+            textobject.textLine(line[:110])
+            line = line[110:]
+        textobject.textLine(line)
+
+    c.drawText(textobject)
+    c.showPage()
+    c.save()
+
+    # Kembalikan pointer ke awal buffer
+    pdf_buffer.seek(0)
+
+    st.download_button(
+        label="📄 Download Laporan PDF",
+        data=pdf_buffer,
+        file_name="laporan_kepuasan.pdf",
+        mime="application/pdf"
+    )
