@@ -32,15 +32,7 @@ st.title("Mini Tool Analisis Kepuasan Berbasis Data")
 st.caption("Versi demo Kerja Praktek – dapat digunakan untuk berbagai survei kepuasan (sistem, layanan, aplikasi, layanan, dan lain-lain).")
 
 with st.sidebar:
-    col1, col2 = st.sidebar.columns([1,1])
-
-with col1:
-    st.image("assets/logo_unsap.png", width=50)
-
-with col2:
-    st.image("assets/logo_fti.png", width=50)
-
-
+    
     st.header("Informasi Aplikasi")
     st.write(
         """
